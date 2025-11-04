@@ -7,7 +7,7 @@ import java.net.SocketException;
 public class ClientHandler implements Runnable {
     private Socket socket;
     private Server server;
-    // CAI TIEN: Dung BufferedReader/PrintWriter de doc/ghi theo tung dong
+    // Dung BufferedReader/PrintWriter de doc/ghi theo tung dong
     private BufferedReader reader;
     private PrintWriter writer;
     private String username;
@@ -112,4 +112,5 @@ public class ClientHandler implements Runnable {
     public void sendMessage(String message) {
         writer.println(message);
     }
+
 }
