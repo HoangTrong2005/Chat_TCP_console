@@ -1,4 +1,4 @@
-// Server lắng nghe kết nối
+
 
 import java.io.IOException;
 import java.net.ServerSocket;
@@ -9,12 +9,18 @@ public class Server {
 
     public Server() {
         try (ServerSocket serverSocket = new ServerSocket(SERVER_PORT)) {
-            System.out.println("✅ Server đang chạy tại cổng " + SERVER_PORT);
+            System.out.println(" Server đang chạy tại cổng " + SERVER_PORT);
+
             while (true) {
                 Socket socket = serverSocket.accept();
-                System.out.println("🔌 Client mới kết nối: " + socket.getRemoteSocketAddress());
+                System.out.println(" Client mới kết nối: " + socket.getRemoteSocketAddress());
+
+                // Tạo luồng riêng cho mỗi client
+                new Thread(new ClientHandler(socket)).start();
             }
+
         } catch (IOException e) {
+            System.out.println(" Lỗi server: " + e.getMessage());
             e.printStackTrace();
         }
     }
