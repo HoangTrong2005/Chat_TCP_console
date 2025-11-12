@@ -1,18 +1,14 @@
-package chattcp;
 
 public class User {
-  private final String username;
-  private String chatWith = null;
-  private String pendingRequest = null;
+  private final String name; // ten user
+  private String chatWith; // ten user khac chat rieng
+  private String pending; // cho xac nhan
 
-  public User(String username) {
-    this.username = username;
-  }
-
-  public String getUsername() { return username; }
+  public User(String name) { this.name = name; }
+  public String getName() { return name; }
   public String getChatWith() { return chatWith; }
-  public void setChatWith(String target) { this.chatWith = target; }
-  public String getPendingRequest() { return pendingRequest; }
-  public void setPendingRequest(String requester) { this.pendingRequest = requester; }
-  public void clearPending() { this.pendingRequest = null; }
+  public void setChatWith(String chatWith) { this.chatWith = chatWith; }
+  public String getPending() { return pending; }
+  public void setPending(String pending) { this.pending = pending; }
+  public void clearPending() { this.pending = null; }
 }
