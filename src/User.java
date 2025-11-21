@@ -1,8 +1,7 @@
-
 public class User {
-  private final String name; // ten user
-  private String chatWith; // ten user khac chat rieng
-  private String pending; // cho xac nhan
+  private final String name; // ten nguoi dung
+  private String chatWith; // dang chat rieng voi ai(ten)
+  private String pending; // ai dang xin chat rieng voi minh
 
   public User(String name) { this.name = name; }
   public String getName() { return name; }
