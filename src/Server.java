@@ -181,4 +181,13 @@ public class Server {
     public static void main(String[] args) {
         new Server();
     }
+<<<<<<< Updated upstream
 }
+=======
+
+    public User getUser(String req) {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'getUser'");
+    }
+}
+>>>>>>> Stashed changes
