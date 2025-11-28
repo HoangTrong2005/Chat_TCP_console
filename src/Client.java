@@ -15,48 +15,57 @@ public class Client {
     public Client() {
         try {
             socket = new Socket(SERVER_IP, SERVER_PORT);
+            reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            writer = new PrintWriter(socket.getOutputStream(), true);
+            Scanner sc = new Scanner(System.in);
+
             System.out.println("Da ket noi den server: " + SERVER_IP + ":" + SERVER_PORT);
 
-            // Tao luong doc (tu server)
-            this.reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-            // Tao luong ghi (den server), true = autoFlush
-            this.writer = new PrintWriter(socket.getOutputStream(), true);
 
-            // Thread nhan tin (chuyen lang nghe server)
-            // Day la mot luong rieng chi de nhan tin nhan tu server va in ra console
-            new Thread(() -> {
+            Thread readThread = new Thread(() -> {
                 try {
-                    String serverMessage;
-                    while ((serverMessage = reader.readLine()) != null) {
-                        System.out.println(serverMessage); // In ra man hinh
+                    String serverMsg;
+                    while ((serverMsg = reader.readLine()) != null) {
+                        if (serverMsg.equals("[SERVER_KICK]")) {
+                            System.out.println("Bạn đã bị kick khỏi server!");
+                            closeClient();
+                            break;
+                        }
+                        if (serverMsg.equals("[SERVER] Server đóng. Đang thoát...")) {
+                            System.out.println("Server đã đóng, mọi người thoát khỏi phòng chat");
+                            closeClient();
+                            break;
+                        }
+                        System.out.println(serverMsg);
                     }
                 } catch (IOException e) {
-                    System.out.println(" Da ngat ket noi voi server.");
+                    System.out.println("Server đã ngắt kết nối.");
+                    closeClient();
                 }
-            }).start();
+            });readThread.start();
 
             // Thread gui tin (luong main doc tu console)
-            Scanner sc = new Scanner(System.in);
             while (true) {
                 String line = sc.nextLine();
-                writer.println(line); // Gui len server (tu dong them \n va flush)
-
+                writer.println(line);
                 if (line.equalsIgnoreCase("/exit")) {
-                    break; // Thoat neu nguoi dung go /exit
+                    closeClient();
+                    break;
                 }
             }
-        } catch (UnknownHostException e) {
-            System.err.println("Khong tim thay server: " + SERVER_IP);
         } catch (IOException e) {
             System.err.println("Loi ket noi toi server: " + e.getMessage());
-        } finally {
-            try {
-                if (socket != null) socket.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-            System.out.println("Da thoat chuong trinh.");
         }
+    }
+
+    private void closeClient() {
+        try {
+            if (reader != null) reader.close();
+            if (writer != null) writer.close();
+            if (socket != null && !socket.isClosed()) socket.close();
+        } catch (IOException ignored) {}
+        System.out.println("Đã thoát chương trình.");
+        System.exit(0);
     }
 
     public static void main(String[] args) {
