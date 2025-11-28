@@ -1,156 +1,251 @@
+package chattcp;
+
 import java.io.*;
 import java.net.*;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Server {
-    private static final int PORT = 1433; // cong server chay tren do va ket noi voi client qua cong nay
-    private final ServerSocket serverSocket;
-    private final Map<String, ClientHandler> clients = new HashMap<>();
-    private final Map<String, User> users = new HashMap<>();
+    private final int SERVER_PORT = 1436;
+    private ServerSocket serverSocket;
 
-    public Server() throws IOException {
-        serverSocket = new ServerSocket(PORT);
-        System.out.println("\033[1;36m=== SERVER CHAY TAI CONG " + PORT + " ===\033[0m");
-        accept();
-        menu(); // Menu dieu khien server
-    }
+    private final Map<String, ClientHandler> clients = new ConcurrentHashMap<>();
+    private final Map<String, String> onlineInfo = new ConcurrentHashMap<>();
+    private final List<String> chatHistory = Collections.synchronizedList(new ArrayList<>());
 
-    // Chap nhan ket noi tu client
-    private void accept() {
-        new Thread(() -> {
-            while (true) {
-                try {
-                    Socket s = serverSocket.accept();
-                    System.out.println("\nNew connection from " + s.getRemoteSocketAddress());
-                    new Thread(new ClientHandler(s, this)).start();
-                } catch (IOException e) {
-                    if (!serverSocket.isClosed()) e.printStackTrace();
+    public Server() {
+        try {
+            serverSocket = new ServerSocket(SERVER_PORT);
+            System.out.println("Server đang chạy tại cổng " + SERVER_PORT);
+            printMenu();
+
+            // Luồng nhận client mới
+            new Thread(() -> {
+                while (!serverSocket.isClosed()) {
+                    try {
+                        Socket socket = serverSocket.accept();
+                        ClientHandler handler = new ClientHandler(socket, this);
+                        new Thread(handler).start();
+                    } catch (IOException e) {
+                        if (!serverSocket.isClosed()) e.printStackTrace();
+                    }
                 }
-            }
-        }).start();
+            }).start();
+
+            handleServerCommands();
+
+        } catch (IOException e) { e.printStackTrace(); }
     }
 
-    // Menu dieu khien cua server (admin)
-    private void menu() {
+    // ===== SERVER CONSOLE =====
+    private void handleServerCommands() {
         Scanner sc = new Scanner(System.in);
+        String mode = null;
+        String targetUser = null;
+
         while (true) {
-            System.out.println("\n\033[1;33m--- SERVER MENU ---\033[0m");
-            System.out.println("1. Gui tin chung");
-            System.out.println("2. Gui tin rieng (1 chieu)");
-            System.out.println("3. Xem danh sach online");
-            System.out.println("4. Thoat");
-            System.out.print("\033[1;32mChon: \033[0m");
-            String choice = sc.nextLine();
-            switch (choice) {
-                case "1" -> sendBroadcast(sc);
-                case "2" -> sendOneWayFromServer(sc);
-                case "3" -> listOnline();
-                case "4" -> { System.out.println("Dong server..."); System.exit(0); }
-                default -> System.out.println("\033[1;31mLua chon khong hop le!\033[0m");
+            if (mode == null) System.out.print("SERVER> ");
+            String line = sc.nextLine().trim();
+            if (line.isEmpty()) continue;
+
+            if (mode != null) {
+                if (line.equalsIgnoreCase("/close")) {
+                    System.out.println("Thoát chế độ " + mode);
+                    mode = null;
+                    targetUser = null;
+                    continue;
+                }
+                switch (mode) {
+                    case "/broadcast":
+                        broadcastMessage("[SERVER_BROADCAST] " + line, null);
+                        break;
+                    case "/msg":
+                        if (targetUser != null)
+                            sendPrivateMessage("SERVER", targetUser, line);
+                        break;
+                }
+                continue;
+            }
+
+            String[] parts = line.split(" ", 2);
+            String command = parts[0].toLowerCase();
+            String args = parts.length > 1 ? parts[1] : "";
+
+            switch (command) {
+                case "/menu": printMenu(); break;
+                case "/online": listClients(System.out); break;
+                case "/exit":
+                    System.out.println("Đóng server...");
+                    shutdownServer();
+                    return;
+                case "/broadcast":
+                    mode = "/broadcast";
+                    System.out.println("Bắt đầu broadcast (gõ /close để thoát)");
+                    break;
+                case "/msg":
+                    if (!args.isEmpty()) {
+                        targetUser = args;
+                        if (!clients.containsKey(targetUser)) {
+                            System.out.println("Không tìm thấy client: " + targetUser);
+                            targetUser = null;
+                        } else {
+                            mode = "/msg";
+                            System.out.println("Bắt đầu chat liên tục với " + targetUser + " (gõ /close để thoát)");
+                        }
+                    } else System.out.println("Cú pháp: /msg <tên_user>");
+                    break;
+                case "/kick":
+                    if (!args.isEmpty()) kickUser(args);
+                    else System.out.println("Cú pháp: /kick <tên_user>");
+                    break;
+                default:
+                    System.out.println("Lệnh không hợp lệ! Gõ /menu để xem các lệnh.");
+                    break;
             }
         }
     }
 
-    private void sendBroadcast(Scanner sc) {
-        System.out.print("Tin nhan: ");
-        String msg = sc.nextLine();
-        log("\033[1;34m[BROADCAST] " + msg + "\033[0m");
-        broadcast("[SERVER] " + msg, null);
+    private void printMenu() {
+        System.out.println("\n================== SERVER MENU ==================");
+        System.out.println("/online      ➜ Xem danh sách clients online (tên + IP)");
+        System.out.println("/msg <user>  ➜ Chat riêng liên tục với client (gõ /close để thoát)");
+        System.out.println("/broadcast   ➜ Gửi broadcast tới tất cả client");
+        System.out.println("/kick <user> ➜ Kick client khỏi server");
+        System.out.println("/exit        ➜ Thoát server");
+        System.out.println("/menu        ➜ Mở menu");
+        System.out.println("=================================================");
     }
 
-    private void sendOneWayFromServer(Scanner sc) {
-        System.out.print("Nguoi nhan: ");
-        String to = sc.nextLine();
-        System.out.print("Tin nhan: ");
-        String msg = sc.nextLine();
-        log("\033[1;35m[ONE-WAY -> " + to + "] " + msg + "\033[0m");
-        sendOneWay("SERVER", to, msg);
-    }
+    // ===== QUẢN LÝ CLIENT =====
+    public boolean registerClient(String username, ClientHandler handler) {
+        Socket sock = handler.getSocket();
+        String ip = (sock != null && sock.getRemoteSocketAddress() != null)
+                ? sock.getRemoteSocketAddress().toString()
+                : "Unknown";
 
-    private void listOnline() {
-        if (users.isEmpty()) {
-            System.out.println("\033[1;33mChua co ai online.\033[0m");
-        } else {
-            System.out.println("\033[1;32mOnline (" + users.size() + "): " + String.join(", ", users.keySet()) + "\033[0m");
+        synchronized (clients) {
+            if (clients.containsKey(username)) return false;
+            clients.put(username, handler);
+            onlineInfo.put(username, ip);
         }
-    }
 
-    // Them nguoi dung moi
-    public synchronized boolean add(String name, ClientHandler handler) {
-        if (users.containsKey(name)) return false;
-        User user = new User(name);
-        users.put(name, user);
-        clients.put(name, handler);
-        log("\033[1;32m[+] " + name + " tham gia\033[0m");
+        broadcastMessage("📢 " + username + " đã tham gia phòng.", null);
         return true;
     }
 
-    // Xoa nguoi dung khi thoat
-    public synchronized void remove(User user) {
-        if (user == null) return;
-        String name = user.getName();
-        clients.remove(name);
-        users.remove(name);
-        if (user.getChatWith() != null) {
-            User p = getUser(user.getChatWith());
-            if (p != null) p.setChatWith(null);
-        }
-        log("\033[1;31m[-] " + name + " da roi\033[0m");
-        broadcast(name + " da roi phong.", null);
+    public void removeClient(String username) {
+        if (username == null) return;
+        clients.remove(username);
+        onlineInfo.remove(username);
+        broadcastMessage("📢 " + username + " đã rời phòng.", null);
     }
 
-    // Gui tin cho tat ca (tru nguoi gui)
-    public void broadcast(String msg, String exclude) {
-        log("\033[1;37m" + msg + "\033[0m");
-        clients.values().stream()
-            .filter(h -> exclude == null || !exclude.equals(h.user.getName()))
-            .forEach(h -> h.send(msg));
-    }
-
-    // Xu ly tin nhan (chat chung hoac chat rieng)
-    public void send(User from, String msg) {
-        String sender = from.getName();
-        if (from.getChatWith() != null) {
-            sendPM(sender, from.getChatWith(), msg);
+    public void kickUser(String username) {
+        ClientHandler client = clients.get(username);
+        if (client != null) {
+            client.sendMessage("[SERVER_KICK]");
+            client.kick();
+            System.out.println("Client " + username + " đã bị kick!");
         } else {
-            broadcast(sender + ": " + msg, sender);
+            System.out.println("Không tìm thấy client: " + username);
         }
     }
 
-    // Gui tin rieng 2 chieu
-    private void sendPM(String from, String to, String msg) {
-        log("\033[1;35m[PM] " + from + " -> " + to + ": " + msg + "\033[0m");
-        ClientHandler r = clients.get(to);
-        if (r != null) {
-            r.send("[PM tu " + from + "]: " + msg);
-            if (!from.equals("SERVER")) clients.get(from).send("[PM den " + to + "]: " + msg);
+    // ===== CHAT =====
+    public void broadcastMessage(String message, String senderUsername) {
+        saveMessageToHistory(message);
+        System.out.println("[BROADCAST] " + message);
+        for (ClientHandler client : clients.values()) {
+            String currentUsername = client.getUsername();
+            if (currentUsername == null) continue;
+            if (senderUsername == null || !currentUsername.equals(senderUsername))
+                client.sendMessage(message);
         }
     }
 
-    // Gui tin 1 chieu
-    public void sendOneWay(String from, String to, String msg) {
-        log("\033[1;31m[TIN 1 CHIEU] " + from + " -> " + to + ": " + msg + "\033[0m");
-        ClientHandler r = clients.get(to);
-        if (r != null) r.send("[TIN MOT CHIEU tu " + from + "]: " + msg);
-        else if (!from.equals("SERVER")) clients.get(from).send("[SERVER] Khong tim thay '" + to + "'.");
+    public void sendPrivateMessage(String fromUser, String toUser, String message) {
+        ClientHandler receiver = clients.get(toUser);
+        if (receiver != null) {
+            receiver.sendMessage("[" + fromUser + "]: " + message);
+            System.out.println("[PRIVATE][" + fromUser + " -> " + toUser + "]: " + message);
+        }
     }
 
-    public void send(String to, String msg) {
-        ClientHandler h = clients.get(to);
-        if (h != null) h.send(msg);
+    public User getUser(String username) {
+        ClientHandler handler = clients.get(username);
+        return handler != null ? handler.user : null;
     }
 
-    public void list(PrintWriter out) {
-        out.println("[SERVER] Online (" + users.size() + "): " + String.join(", ", users.keySet()));
+    // Dành cho **client**: chỉ in tên
+    public void listClientNames(PrintWriter out) {
+        if (clients.isEmpty()) {
+            out.println("[SERVER] Chưa có client nào online.");
+            return;
+        }
+        out.println("=== Clients online ===");
+        for (String username : clients.keySet()) {
+            out.println(" - " + username);
+        }
     }
 
-    public User getUser(String name) { return users.get(name); }
+    // Dành cho **server console**: tên + IP
+    public void listClients(Object outObj) {
+        if (clients.isEmpty()) {
+            if (outObj instanceof PrintWriter) ((PrintWriter) outObj).println("[SERVER] Chưa có client nào online.");
+            else System.out.println("Chưa có client nào online.");
+            return;
+        }
 
-    private void log(String msg) {
-        System.out.println(msg);
+        if (outObj instanceof PrintWriter) {
+            PrintWriter out = (PrintWriter) outObj;
+            out.println("=== Clients online ===");
+            for (String username : clients.keySet()) {
+                String ip = onlineInfo.getOrDefault(username, "Unknown");
+                out.println(" - " + username + " | IP: " + ip);
+            }
+        } else {
+            System.out.println("=== Clients online ===");
+            for (String username : clients.keySet()) {
+                String ip = onlineInfo.getOrDefault(username, "Unknown");
+                System.out.println(" - " + username + " | IP: " + ip);
+            }
+        }
     }
 
-    public static void main(String[] args) {
-        try { new Server(); } catch (IOException e) { System.err.println("Loi: " + e.getMessage()); }
+    private void saveMessageToHistory(String message) {
+        chatHistory.add(message);
+        try (PrintWriter out = new PrintWriter(new BufferedWriter(new FileWriter("chat_history.txt", true)))) {
+            out.println(message);
+        } catch (IOException e) { e.printStackTrace(); }
     }
+
+    public List<String> getChatHistory() { return chatHistory; }
+
+    public void receiveFromClient(String fromUser, String message) {
+        String formatted = "[CLIENT->SERVER][" + fromUser + "]: " + message;
+        System.out.println(formatted);
+        saveMessageToHistory(formatted);
+
+        ClientHandler client = clients.get(fromUser);
+        if (client != null) {
+            client.sendMessage("[SERVER] Đã nhận: " + message);
+        }
+    }
+
+    // ===== TẮT SERVER =====
+    private void shutdownServer() {
+        for (ClientHandler client : clients.values()) {
+            client.sendMessage("[SERVER] Server đóng. Đang thoát...");
+            client.kick();
+        }
+        clients.clear();
+        onlineInfo.clear();
+
+        try {
+            serverSocket.close();
+        } catch (IOException e) { e.printStackTrace(); }
+        System.out.println("Server đã tắt.");
+    }
+
+    public static void main(String[] args) { new Server(); }
 }
